@@ -8,6 +8,7 @@ A comprehensive health assessment tool that provides personalized fitness and nu
 - **Personalized Plans**: Customized workout routines and meal suggestions based on your goals
 - **Comprehensive Assessment**: Evaluates BMI, BMR, daily calorie needs, and macronutrient distribution
 - **Health Risk Analysis**: Identifies potential health risks based on your metrics
+- **PDF Report Generation**: Download your complete health report as a beautifully formatted PDF
 - **Beautiful UI**: Professional, responsive design with Tailwind CSS
 - **Dietary Preferences**: Support for vegetarian, vegan, keto, and paleo diets
 
@@ -17,6 +18,8 @@ A comprehensive health assessment tool that provides personalized fitness and nu
 - **FastAPI** - Modern, fast Python web framework
 - **Pydantic** - Data validation using Python type annotations
 - **Uvicorn** - Lightning-fast ASGI server
+- **WeasyPrint** - HTML to PDF converter
+- **Jinja2** - Template engine for PDF generation
 
 ### Frontend
 - **React 18** - Modern UI library
@@ -41,6 +44,9 @@ This application uses evidence-based formulas:
 - Python 3.8 or higher
 - Node.js 16 or higher
 - npm or yarn
+- **GTK+ for Windows** (required for WeasyPrint PDF generation)
+  - Download from: https://github.com/tschoonj/GTK-for-Windows-Runtime-Environment-Installer/releases
+  - Install the runtime environment before running the backend
 
 ### Backend Setup
 
@@ -109,6 +115,7 @@ The application will be available at `http://localhost:3000`
    - Meal suggestions
    - Lifestyle recommendations
    - Weekly goals
+5. **Download PDF**: Save your complete health report as a professionally formatted PDF document
 
 ## API Endpoints
 
@@ -134,6 +141,13 @@ Submit health information and receive personalized plan
 ```
 
 **Response:** Comprehensive health assessment and personalized plan
+
+### `POST /generate-pdf`
+Generate and download a PDF report of the health assessment
+
+**Request Body:** Complete PersonalizedPlan object (same as response from `/assess`)
+
+**Response:** PDF file download
 
 ### `GET /health`
 Health check endpoint
