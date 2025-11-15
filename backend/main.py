@@ -1,9 +1,13 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 import math
+from weasyprint import HTML, CSS
+from jinja2 import Template
+import io
 
 app = FastAPI(title="Health Assessment API")
 
@@ -494,6 +498,562 @@ def assess_health(user_info: UserHealthInfo):
 @app.get("/health")
 def health_check():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+@app.post("/generate-pdf")
+def generate_pdf(plan: PersonalizedPlan):
+    """
+    Generate a beautiful PDF report from the personalized health plan
+    """
+    try:
+        # HTML template for the PDF
+        html_template = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Health Assessment Report - {{ user_info.name }}</title>
+            <style>
+                @page {
+                    size: A4;
+                    margin: 1.5cm;
+                }
+                
+                body {
+                    font-family: 'Arial', 'Helvetica', sans-serif;
+                    color: #1f2937;
+                    line-height: 1.6;
+                    margin: 0;
+                    padding: 0;
+                }
+                
+                .header {
+                    background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%);
+                    color: white;
+                    padding: 30px;
+                    margin-bottom: 30px;
+                    border-radius: 8px;
+                }
+                
+                .header h1 {
+                    margin: 0 0 10px 0;
+                    font-size: 32px;
+                    font-weight: bold;
+                }
+                
+                .header p {
+                    margin: 5px 0;
+                    font-size: 14px;
+                    opacity: 0.95;
+                }
+                
+                .section {
+                    margin-bottom: 25px;
+                    page-break-inside: avoid;
+                }
+                
+                .section-title {
+                    font-size: 20px;
+                    font-weight: bold;
+                    color: #0369a1;
+                    margin-bottom: 15px;
+                    padding-bottom: 8px;
+                    border-bottom: 3px solid #0ea5e9;
+                }
+                
+                .metrics-grid {
+                    display: grid;
+                    grid-template-columns: repeat(4, 1fr);
+                    gap: 15px;
+                    margin-bottom: 20px;
+                }
+                
+                .metric-card {
+                    background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
+                    padding: 15px;
+                    border-radius: 8px;
+                    border: 2px solid #0ea5e9;
+                    text-align: center;
+                }
+                
+                .metric-label {
+                    font-size: 11px;
+                    color: #075985;
+                    font-weight: 600;
+                    margin-bottom: 5px;
+                    text-transform: uppercase;
+                }
+                
+                .metric-value {
+                    font-size: 24px;
+                    font-weight: bold;
+                    color: #0c4a6e;
+                    margin: 5px 0;
+                }
+                
+                .metric-unit {
+                    font-size: 11px;
+                    color: #075985;
+                }
+                
+                .bmi-badge {
+                    display: inline-block;
+                    padding: 5px 12px;
+                    border-radius: 20px;
+                    font-size: 11px;
+                    font-weight: bold;
+                    margin-top: 5px;
+                }
+                
+                .bmi-normal { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+                .bmi-underweight { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+                .bmi-overweight { background: #fed7aa; color: #9a3412; border: 1px solid #fb923c; }
+                .bmi-obese { background: #fecaca; color: #991b1b; border: 1px solid #f87171; }
+                
+                .macros-grid {
+                    display: grid;
+                    grid-template-columns: repeat(3, 1fr);
+                    gap: 15px;
+                    margin-bottom: 20px;
+                }
+                
+                .macro-card {
+                    padding: 15px;
+                    border-radius: 8px;
+                    border: 2px solid;
+                    text-align: center;
+                }
+                
+                .macro-protein { background: #dbeafe; border-color: #3b82f6; }
+                .macro-carbs { background: #dcfce7; border-color: #22c55e; }
+                .macro-fats { background: #fef3c7; border-color: #eab308; }
+                
+                .macro-card h4 {
+                    margin: 0 0 8px 0;
+                    font-size: 14px;
+                }
+                
+                .macro-card .value {
+                    font-size: 22px;
+                    font-weight: bold;
+                }
+                
+                .table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 15px 0;
+                    font-size: 12px;
+                }
+                
+                .table th {
+                    background: #e0f2fe;
+                    color: #0c4a6e;
+                    padding: 10px;
+                    text-align: left;
+                    font-weight: bold;
+                    border-bottom: 2px solid #0ea5e9;
+                }
+                
+                .table td {
+                    padding: 10px;
+                    border-bottom: 1px solid #e5e7eb;
+                }
+                
+                .table tr:hover {
+                    background: #f9fafb;
+                }
+                
+                .badge {
+                    display: inline-block;
+                    padding: 4px 10px;
+                    border-radius: 12px;
+                    font-size: 10px;
+                    font-weight: 600;
+                }
+                
+                .badge-cardio { background: #dbeafe; color: #1e40af; }
+                .badge-strength { background: #e9d5ff; color: #6b21a8; }
+                .badge-rest { background: #e5e7eb; color: #374151; }
+                .badge-flexibility { background: #d1fae5; color: #065f46; }
+                .badge-active { background: #fef3c7; color: #92400e; }
+                .badge-recreation { background: #fce7f3; color: #9f1239; }
+                
+                .intensity-low { background: #dcfce7; color: #166534; }
+                .intensity-moderate { background: #fef3c7; color: #92400e; }
+                .intensity-high { background: #fecaca; color: #991b1b; }
+                
+                .list {
+                    list-style: none;
+                    padding: 0;
+                    margin: 0;
+                }
+                
+                .list-item {
+                    padding: 10px 10px 10px 35px;
+                    margin-bottom: 8px;
+                    background: #f0f9ff;
+                    border-left: 4px solid #0ea5e9;
+                    border-radius: 4px;
+                    position: relative;
+                    font-size: 13px;
+                }
+                
+                .list-item:before {
+                    content: "✓";
+                    position: absolute;
+                    left: 12px;
+                    color: #0ea5e9;
+                    font-weight: bold;
+                    font-size: 14px;
+                }
+                
+                .risk-item {
+                    background: #fef2f2;
+                    border-left-color: #ef4444;
+                }
+                
+                .risk-item:before {
+                    content: "⚠";
+                }
+                
+                .two-column {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 15px;
+                    margin: 15px 0;
+                }
+                
+                .meal-card {
+                    background: #fafafa;
+                    padding: 15px;
+                    border-radius: 8px;
+                    border: 1px solid #e5e7eb;
+                    margin-bottom: 15px;
+                }
+                
+                .meal-card h4 {
+                    margin: 0 0 10px 0;
+                    color: #0369a1;
+                    font-size: 14px;
+                }
+                
+                .meal-cal {
+                    display: inline-block;
+                    background: #e0f2fe;
+                    color: #075985;
+                    padding: 3px 10px;
+                    border-radius: 12px;
+                    font-size: 11px;
+                    font-weight: bold;
+                    margin-left: 10px;
+                }
+                
+                .meal-card ul {
+                    margin: 10px 0 0 0;
+                    padding-left: 20px;
+                    font-size: 12px;
+                }
+                
+                .meal-card li {
+                    margin-bottom: 5px;
+                    line-height: 1.5;
+                }
+                
+                .goals-grid {
+                    display: grid;
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: 12px;
+                    margin: 15px 0;
+                }
+                
+                .goal-card {
+                    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+                    padding: 12px;
+                    border-radius: 6px;
+                    border: 1px solid #bae6fd;
+                }
+                
+                .goal-card h5 {
+                    margin: 0 0 5px 0;
+                    color: #0c4a6e;
+                    font-size: 12px;
+                    text-transform: uppercase;
+                    font-weight: bold;
+                }
+                
+                .goal-card p {
+                    margin: 0;
+                    color: #374151;
+                    font-size: 12px;
+                }
+                
+                .disclaimer {
+                    background: #fef3c7;
+                    border: 2px solid #eab308;
+                    border-radius: 8px;
+                    padding: 15px;
+                    margin-top: 30px;
+                    font-size: 11px;
+                    page-break-inside: avoid;
+                }
+                
+                .disclaimer h4 {
+                    margin: 0 0 8px 0;
+                    color: #92400e;
+                    font-size: 13px;
+                }
+                
+                .disclaimer p {
+                    margin: 0;
+                    color: #78350f;
+                    line-height: 1.5;
+                }
+                
+                .footer {
+                    margin-top: 30px;
+                    text-align: center;
+                    font-size: 11px;
+                    color: #6b7280;
+                    padding-top: 20px;
+                    border-top: 2px solid #e5e7eb;
+                }
+                
+                .ideal-weight {
+                    background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+                    padding: 20px;
+                    border-radius: 8px;
+                    border: 2px solid #22c55e;
+                    text-align: center;
+                    margin: 15px 0;
+                }
+                
+                .ideal-weight h4 {
+                    margin: 0 0 10px 0;
+                    color: #166534;
+                    font-size: 16px;
+                }
+                
+                .ideal-weight .range {
+                    font-size: 28px;
+                    font-weight: bold;
+                    color: #15803d;
+                    margin: 10px 0;
+                }
+                
+                .ideal-weight .current {
+                    font-size: 12px;
+                    color: #166534;
+                }
+            </style>
+        </head>
+        <body>
+            <!-- Header -->
+            <div class="header">
+                <h1>🏥 Health Assessment Report</h1>
+                <p><strong>Prepared for:</strong> {{ user_info.name }}</p>
+                <p><strong>Date:</strong> {{ report_date }}</p>
+                <p><strong>Age:</strong> {{ user_info.age }} years | <strong>Gender:</strong> {{ user_info.gender|capitalize }} | <strong>Goal:</strong> {{ user_info.goal|replace('_', ' ')|title }}</p>
+            </div>
+            
+            <!-- Key Metrics -->
+            <div class="section">
+                <h2 class="section-title">📊 Key Health Metrics</h2>
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-label">BMI</div>
+                        <div class="metric-value">{{ "%.1f"|format(assessment.bmi) }}</div>
+                        <span class="bmi-badge bmi-{{ assessment.bmi_category|replace(' ', '-')|lower }}">
+                            {{ assessment.bmi_category }}
+                        </span>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Daily Calories</div>
+                        <div class="metric-value">{{ assessment.daily_calories|round|int }}</div>
+                        <div class="metric-unit">kcal/day</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">BMR</div>
+                        <div class="metric-value">{{ assessment.bmr|round|int }}</div>
+                        <div class="metric-unit">kcal/day</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Water Intake</div>
+                        <div class="metric-value">{{ "%.1f"|format(assessment.water_liters) }}</div>
+                        <div class="metric-unit">liters/day</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Macronutrients -->
+            <div class="section">
+                <h2 class="section-title">🥗 Daily Macronutrient Targets</h2>
+                <div class="macros-grid">
+                    <div class="macro-card macro-protein">
+                        <h4>Protein</h4>
+                        <div class="value">{{ assessment.protein_grams|round|int }}g</div>
+                    </div>
+                    <div class="macro-card macro-carbs">
+                        <h4>Carbohydrates</h4>
+                        <div class="value">{{ assessment.carbs_grams|round|int }}g</div>
+                    </div>
+                    <div class="macro-card macro-fats">
+                        <h4>Fats</h4>
+                        <div class="value">{{ assessment.fats_grams|round|int }}g</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Ideal Weight -->
+            <div class="section">
+                <h2 class="section-title">⚖️ Ideal Weight Range</h2>
+                <div class="ideal-weight">
+                    <h4>Healthy Weight Range for Your Height</h4>
+                    <div class="range">{{ assessment.ideal_weight_range.min_kg }} - {{ assessment.ideal_weight_range.max_kg }} kg</div>
+                    <div class="current">Current Weight: <strong>{{ user_info.weight }} kg</strong></div>
+                </div>
+            </div>
+            
+            {% if assessment.health_risks %}
+            <!-- Health Risks -->
+            <div class="section">
+                <h2 class="section-title">⚠️ Health Considerations</h2>
+                <ul class="list">
+                    {% for risk in assessment.health_risks %}
+                    <li class="list-item risk-item">{{ risk }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+            
+            <!-- Recommendations -->
+            <div class="section">
+                <h2 class="section-title">✅ Personalized Recommendations</h2>
+                <div class="two-column">
+                    {% for rec in assessment.recommendations %}
+                    <div class="list-item">{{ rec }}</div>
+                    {% endfor %}
+                </div>
+            </div>
+            
+            <!-- Weekly Goals -->
+            <div class="section">
+                <h2 class="section-title">🎯 Weekly Goals</h2>
+                <div class="goals-grid">
+                    {% for key, value in weekly_goals.items() %}
+                    <div class="goal-card">
+                        <h5>{{ key|replace('_', ' ')|title }}</h5>
+                        <p>{{ value }}</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            
+            <!-- Workout Plan -->
+            <div class="section">
+                <h2 class="section-title">💪 Weekly Workout Plan</h2>
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Day</th>
+                            <th>Type</th>
+                            <th>Activity</th>
+                            <th>Duration</th>
+                            <th>Intensity</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for workout in workout_plan %}
+                        <tr>
+                            <td><strong>{{ workout.day }}</strong></td>
+                            <td>
+                                <span class="badge badge-{{ workout.type|lower|replace(' ', '-') }}">
+                                    {{ workout.type }}
+                                </span>
+                            </td>
+                            <td>{{ workout.activity }}</td>
+                            <td>{{ workout.duration }}</td>
+                            <td>
+                                <span class="badge intensity-{{ workout.intensity|lower|replace('-', '')|replace('/', '')|split(' ')|first }}">
+                                    {{ workout.intensity }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Meal Suggestions -->
+            <div class="section">
+                <h2 class="section-title">🍽️ Meal Suggestions</h2>
+                {% for meal in meal_suggestions %}
+                <div class="meal-card">
+                    <h4>{{ meal.meal }}<span class="meal-cal">~{{ meal.calories }} kcal</span></h4>
+                    <ul>
+                        {% for suggestion in meal.suggestions %}
+                        <li>{{ suggestion }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endfor %}
+            </div>
+            
+            <!-- Lifestyle Tips -->
+            <div class="section">
+                <h2 class="section-title">💡 Lifestyle & Wellness Tips</h2>
+                <div class="two-column">
+                    {% for tip in lifestyle_tips %}
+                    <div class="list-item">{{ tip }}</div>
+                    {% endfor %}
+                </div>
+            </div>
+            
+            <!-- Disclaimer -->
+            <div class="disclaimer">
+                <h4>⚠️ Important Disclaimer</h4>
+                <p>
+                    This health assessment is for informational purposes only and does not constitute medical advice. 
+                    Always consult with qualified healthcare professionals before making significant changes to your diet, 
+                    exercise routine, or lifestyle, especially if you have existing medical conditions or are taking medications.
+                </p>
+            </div>
+            
+            <!-- Footer -->
+            <div class="footer">
+                <p><strong>Health Assessment Application</strong> | Based on WHO standards and evidence-based research</p>
+                <p>© 2025 Health Assessment App | Report generated on {{ report_date }}</p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        # Prepare data for template
+        template = Template(html_template)
+        html_content = template.render(
+            user_info=plan.user_info,
+            assessment=plan.assessment,
+            workout_plan=plan.workout_plan,
+            meal_suggestions=plan.meal_suggestions,
+            lifestyle_tips=plan.lifestyle_tips,
+            weekly_goals=plan.weekly_goals,
+            report_date=datetime.now().strftime("%B %d, %Y")
+        )
+        
+        # Generate PDF
+        pdf_file = io.BytesIO()
+        HTML(string=html_content).write_pdf(pdf_file)
+        pdf_file.seek(0)
+        
+        # Return PDF as response
+        return Response(
+            content=pdf_file.getvalue(),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=health_report_{plan.user_info.name.replace(' ', '_')}.pdf"
+            }
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating PDF: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
